@@ -225,6 +225,10 @@ if __name__ == '__main__':
                         help='Proportion of the validation dataset '
                              '(default 0.01)')
     args = parser.parse_args()
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
+
     train_data, valid_data, words = load_data_memory_friendly(args.input,
                                                               args.max_length,
                                                               args.min_freq)
