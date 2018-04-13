@@ -225,9 +225,8 @@ if __name__ == '__main__':
                         help='Proportion of the validation dataset '
                              '(default 0.01)')
     args = parser.parse_args()
-    train_data, valid_data, words = load_data_memory_friendly(args.input,
-                                                              args.max_length,
-                                                              args.min_freq)
+    train_data, valid_data, words = load_data_memory_friendly(
+        args.input, args.max_length, args.min_freq, args.valid_proportion)
 
     path = os.path.join(args.output, 'valid-data.npz')
     np.savez(path, **valid_data)
