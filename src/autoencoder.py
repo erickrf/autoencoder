@@ -15,32 +15,30 @@ class TextAutoencoder(object):
     reconstruct pieces of text.
     """
 
-    def __init__(self, lstm_units, num_time_steps, embeddings,
-                 eos, train=True, train_embeddings=False,
-                 bidirectional=True):
+    def __init__(self, lstm_units, embeddings, go, train=True,
+                 train_embeddings=False, bidirectional=True):
         """
         Initialize the encoder/decoder and creates Tensor objects
 
         :param lstm_units: number of LSTM units
-        :param num_time_steps: maximum number of time steps, i.e., token
-            (when using a trained model, this can be None)
         :param embeddings: numpy array with initial embeddings
-        :param eos: index of the EOS symbol in the embedding matrix
+        :param go: index of the GO symbol in the embedding matrix
         :param train_embeddings: whether to adjust embeddings during training
         :param bidirectional: whether to create a bidirectional autoencoder
             (if False, a simple linear LSTM is used)
         """
-        self.eos = eos
+        # EOS and GO share the same symbol. Only GO needs to be embedded, and
+        # only EOS exists as a possible network output
+        self.go = go
+        self.eos = go
+
         self.bidirectional = bidirectional
         self.vocab_size = embeddings.shape[0]
         self.embedding_size = embeddings.shape[1]
-        self.num_time_steps = num_time_steps
         self.global_step = tf.Variable(0, name='global_step', trainable=False)
 
         # the sentence is the object to be memorized
-        self.sentence = tf.placeholder(tf.int32,
-                                       [None, num_time_steps],
-                                       'sentence')
+        self.sentence = tf.placeholder(tf.int32, [None, None], 'sentence')
         self.sentence_size = tf.placeholder(tf.int32, [None],
                                             'sentence_size')
         self.l2_constant = tf.placeholder(tf.float32, name='l2_constant')
@@ -52,13 +50,10 @@ class TextAutoencoder(object):
                                                  [None],
                                                  'prediction_step')
 
-        # backwards compatibility with previously saved models
-        name = 'decoder_fw_step_state_c' if bidirectional \
-            else 'decoder_step_state_c'
+        name = 'decoder_fw_step_state_c'
         self.decoder_fw_step_c = tf.placeholder(tf.float32,
                                                 [None, lstm_units], name)
-        name = 'decoder_fw_step_state_h' if bidirectional \
-            else 'decoder_step_state_h'
+        name = 'decoder_fw_step_state_h'
         self.decoder_fw_step_h = tf.placeholder(tf.float32,
                                                 [None, lstm_units], name)
         self.decoder_bw_step_c = tf.placeholder(tf.float32,
@@ -72,21 +67,16 @@ class TextAutoencoder(object):
             self.embeddings = tf.Variable(embeddings, name='embeddings',
                                           trainable=train_embeddings)
 
-            initializer = tf.contrib.layers.xavier_initializer()
+            initializer = tf.glorot_normal_initializer()
             self.lstm_fw = tf.nn.rnn_cell.LSTMCell(lstm_units,
                                                    initializer=initializer)
             self.lstm_bw = tf.nn.rnn_cell.LSTMCell(lstm_units,
                                                    initializer=initializer)
-            shape = (2 * lstm_units, self.vocab_size) if bidirectional \
-                else (lstm_units, self.vocab_size)
-            self.projection_w = tf.get_variable('projection_w', shape,
-                                                initializer=initializer)
-            initializer = tf.zeros_initializer((self.vocab_size,))
-            self.projection_b = tf.get_variable('projection_b',
-                                                initializer=initializer)
+
             embedded = tf.nn.embedding_lookup(self.embeddings, self.sentence)
             embedded = tf.nn.dropout(embedded, self.dropout_keep)
 
+            # encoding step
             if bidirectional:
                 bdr = tf.nn.bidirectional_dynamic_rnn
                 ret = bdr(self.lstm_fw, self.lstm_bw,
@@ -104,57 +94,46 @@ class TextAutoencoder(object):
 
                 # set the scope name used inside the decoder.
                 # maybe there's a more elegant way to do it?
-                fw_scope_name = self.scope.name + '/FW'
-                bw_scope_name = self.scope.name + '/BW'
+                fw_scope_name = self.scope.name + '/fw'
+                bw_scope_name = self.scope.name + '/bw'
             else:
                 encoded_state_fw = self.encoded_state
                 fw_scope_name = self.scope
 
             self.scope.reuse_variables()
 
-        if train:
-            # seq2seq functions need lists as input
-            list_input = self._tensor_to_list(embedded)
-
-            # generate a batch of embedded EOS
+            # generate a batch of embedded GO
             # sentence_size has the batch dimension
-            eos_batch = self._generate_batch_eos(self.sentence_size)
+            go_batch = self._generate_batch_go(self.sentence_size)
             embedded_eos = tf.nn.embedding_lookup(self.embeddings,
-                                                  eos_batch)
-            decoder_input = [embedded_eos] + list_input
+                                                  go_batch)
+            embedded_eos = tf.reshape(embedded_eos,
+                                      [-1, 1, self.embedding_size])
+            decoder_input = tf.concat([embedded_eos, embedded], axis=1)
+
+            # decoding step
 
             # We give the same inputs to the forward and backward LSTMs,
             # but each one has its own hidden state
             # their outputs are concatenated and fed to the softmax layer
-
-            # The BW LSTM sees the input in reverse order but make predictions
-            # in forward order
-            with tf.variable_scope(fw_scope_name, reuse=True) as fw_scope:
-                res = tf.nn.seq2seq.rnn_decoder(decoder_input,
-                                                encoded_state_fw,
-                                                self.lstm_fw,
-                                                scope=fw_scope)
-                decoder_outputs_fw, _ = res
-
             if bidirectional:
-                with tf.variable_scope(bw_scope_name, reuse=True) as bw_scope:
-                    res = tf.nn.seq2seq.rnn_decoder(decoder_input,
-                                                    encoded_state_bw,
-                                                    self.lstm_bw,
-                                                    scope=bw_scope)
-                    decoder_outputs_bw, _ = res
+                outputs, _ = tf.nn.bidirectional_dynamic_rnn(
+                    self.lstm_fw, self.lstm_bw, decoder_input,
+                    self.sentence_size, encoded_state_fw, encoded_state_bw)
 
-            # decoder_outputs has the raw outputs before projection
-            # it has shape (batch, lstm_units)
-            self.decoder_outputs = []
-            raw_outputs = zip(decoder_outputs_fw, decoder_outputs_bw) \
-                if bidirectional else decoder_outputs_fw
-            for output in raw_outputs:
-                if bidirectional:
-                    # here, each output is (output_fw, output_bw)
-                    output = tf.concat(1, output)
-                dropout = tf.nn.dropout(output, self.dropout_keep)
-                self.decoder_outputs.append(dropout)
+                # concat fw and bw outputs
+                outputs = tf.concat(outputs, -1)
+            else:
+                outputs, _ = tf.nn.dynamic_rnn(
+                    self.lstm_fw, decoder_input, self.sentence_size,
+                    encoded_state_fw)
+
+            self.decoder_outputs = outputs
+
+        # now project the outputs to the vocabulary
+        with tf.variable_scope('projection') as self.projection_scope:
+            # decoder_outputs has shape (batch, max_sentence_size, vocab_size)
+            self.logits = tf.layers.dense(outputs, self.vocab_size)
 
         # tensors for running a model
         embedded_step = tf.nn.embedding_lookup(self.embeddings,
@@ -171,56 +150,52 @@ class TextAutoencoder(object):
             with tf.variable_scope(bw_scope_name, reuse=True):
                 ret_bw = self.lstm_bw(embedded_step, state_bw)
                 step_output_bw, self.decoder_bw_step_state = ret_bw
-                step_output = tf.concat(1, [step_output_fw, step_output_bw])
+                step_output = tf.concat(axis=1, values=[step_output_fw,
+                                                        step_output_bw])
         else:
             step_output = step_output_fw
-        self.projected_step_output = tf.nn.xw_plus_b(step_output,
-                                                     self.projection_w,
-                                                     self.projection_b)
+
+        with tf.variable_scope(self.projection_scope, reuse=True):
+            self.projected_step_output = tf.layers.dense(step_output,
+                                                         self.vocab_size)
 
         if train:
             self._create_training_tensors()
-
-    def _tensor_to_list(self, tensor, num_steps=None):
-        """
-        Splits the input tensor sentence into a list of 1-d
-        tensors, as much as the number of time steps.
-        This is necessary for seq2seq functions.
-        """
-        if num_steps is None:
-            num_steps = self.num_time_steps
-        return [tf.squeeze(step, [1])
-                for step in tf.split(1, num_steps, tensor)]
 
     def _create_training_tensors(self):
         """
         Create member variables related to training.
         """
-        sentence_as_list = self._tensor_to_list(self.sentence)
-        eos_batch = self._generate_batch_eos(sentence_as_list[0])
-        decoder_labels = sentence_as_list + [eos_batch]
-        decoder_labels = [tf.cast(step, tf.int64) for step in decoder_labels]
+        eos_batch = self._generate_batch_go(self.sentence_size)
+        eos_batch = tf.reshape(eos_batch, [-1, 1])
+        decoder_labels = tf.concat([self.sentence, eos_batch], -1)
+
+        projection_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                            scope=self.projection_scope.name)
+        # a bit ugly, maybe we should improve this?
+        projection_w = [var for var in projection_vars
+                        if 'kernel' in var.name][0]
+        projection_b = [var for var in projection_vars
+                        if 'bias' in var.name][0]
 
         # set the importance of each time step
         # 1 if before sentence end or EOS itself; 0 otherwise
-        label_weights = [tf.cast(tf.less(i - 1, self.sentence_size),
-                                 tf.float32)
-                         for i in range(self.num_time_steps + 1)]
+        max_len = tf.shape(self.sentence)[1]
+        mask = tf.sequence_mask(self.sentence_size + 1, max_len + 1, tf.float32)
+        num_actual_labels = tf.reduce_sum(mask)
+        projection_w_t = tf.transpose(projection_w)
 
-        projection_w_t = tf.transpose(self.projection_w)
+        # reshape to have batch and time steps in the same dimension
+        decoder_outputs2d = tf.reshape(self.decoder_outputs,
+                                       [-1, tf.shape(self.decoder_outputs)[-1]])
+        labels = tf.reshape(decoder_labels, [-1, 1])
+        sampled_loss = tf.nn.sampled_softmax_loss(
+            projection_w_t, projection_b, labels, decoder_outputs2d, 100,
+            self.vocab_size)
 
-        def loss_function(inputs, labels):
-            labels = tf.reshape(labels, (-1, 1))
-            return tf.nn.sampled_softmax_loss(projection_w_t,
-                                              self.projection_b,
-                                              inputs, labels,
-                                              100, self.vocab_size)
-        labeled_loss = tf.nn.seq2seq.sequence_loss(self.decoder_outputs,
-                                                   decoder_labels,
-                                                   label_weights,
-                                                   softmax_loss_function=loss_function)
-        # self.loss = labeled_loss + self.compute_l2_loss()
-        self.loss = labeled_loss
+        masked_loss = tf.reshape(mask, [-1]) * sampled_loss
+        self.loss = tf.reduce_sum(masked_loss) / num_actual_labels
+
         optimizer = tf.train.AdamOptimizer(self.learning_rate)
         gradients, v = zip(*optimizer.compute_gradients(self.loss))
         gradients, _ = tf.clip_by_global_norm(gradients, self.clip_value)
@@ -232,8 +207,7 @@ class TextAutoencoder(object):
         """
         Return all trainable variables inside the model
         """
-        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-                                 self.scope.name)
+        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
 
     def train(self, session, save_path, train_data, valid_data,
               batch_size, epochs, learning_rate, dropout_keep,
@@ -258,63 +232,61 @@ class TextAutoencoder(object):
         best_loss = 10000
         accumulated_loss = 0
         batch_counter = 0
+        num_sents = 0
 
         # get all data at once. we need all matrices with the same size,
         # or else they don't fit the placeholders
-        train_sents, train_sizes = train_data.join_all(self.eos,
-                                                       self.num_time_steps,
+        # train_sents, train_sizes = train_data.join_all(self.go,
+        #                                                self.num_time_steps,
+        #                                                shuffle=True)
+
+        # del train_data  # save memory...
+        valid_sents, valid_sizes = valid_data.join_all(self.go,
                                                        shuffle=True)
+        train_data.reset_epoch_counter()
+        feeds = {self.clip_value: clip_value,
+                 self.dropout_keep: dropout_keep,
+                 self.learning_rate: learning_rate}
 
-        del train_data  # save memory...
-        valid_sents, valid_sizes = valid_data.join_all(self.eos,
-                                                       self.num_time_steps,
-                                                       shuffle=True)
+        while train_data.epoch_counter < epochs:
+            batch_counter += 1
+            train_sents, train_sizes = train_data.next_batch(batch_size)
+            feeds[self.sentence] = train_sents
+            feeds[self.sentence_size] = train_sizes
 
-        for i in range(epochs):
-            # idx1 and idx2 are used to index where each batch begins and
-            # ends in train_data
-            idx1 = 0
-            while idx1 < len(train_sents):
-                idx2 = idx1 + batch_size
-                feeds = {self.sentence: train_sents[idx1:idx2],
-                         self.sentence_size: train_sizes[idx1:idx2],
-                         self.clip_value: clip_value,
-                         self.dropout_keep: dropout_keep,
-                         self.learning_rate: learning_rate}
+            _, loss = session.run([self.train_op, self.loss], feeds)
 
-                _, loss = session.run([self.train_op, self.loss], feeds)
-                # tl = timeline.Timeline(run_metadata.step_stats)
-                # ctf = tl.generate_chrome_trace_format()
-                # with open('timeline-%d.json' % batch_counter, 'wb') as f:
-                #     f.write(ctf)
+            # multiply by len because some batches may be smaller
+            # (due to bucketing), then take the average
+            accumulated_loss += loss * len(train_sents)
+            num_sents += len(train_sents)
 
-                accumulated_loss += loss
+            if batch_counter % report_interval == 0:
+                avg_loss = accumulated_loss / num_sents
+                accumulated_loss = 0
+                num_sents = 0
 
-                idx1 = idx2
-                batch_counter += 1
-                if batch_counter % report_interval == 0:
-                    avg_loss = accumulated_loss / report_interval
-                    accumulated_loss = 0
+                # we can't use all the validation at once, since it would
+                # take too much memory. running many small batches would
+                # instead take too much time. So let's just sample it.
+                sample_indices = np.random.randint(0, len(valid_data),
+                                                   5000)
+                validation_feeds = {
+                    self.sentence: valid_sents[sample_indices],
+                    self.sentence_size: valid_sizes[sample_indices],
+                    self.dropout_keep: 1}
 
-                    # we can't use all the validation at once, since it would
-                    # take too much memory. running many small batches would
-                    # instead take too much time. So let's just sample it.
-                    sample_indices = np.random.randint(0, len(valid_data),
-                                                       5000)
-                    feeds = {self.sentence: valid_sents[sample_indices],
-                             self.sentence_size: valid_sizes[sample_indices],
-                             self.dropout_keep: 1}
+                loss = session.run(self.loss, validation_feeds)
+                msg = '%d epochs, %d batches\t' % (train_data.epoch_counter,
+                                                   batch_counter)
+                msg += 'Avg batch loss: %f\t' % avg_loss
+                msg += 'Validation loss: %f' % loss
+                if loss < best_loss:
+                    best_loss = loss
+                    self.save(saver, session, save_path)
+                    msg += '\t(saved model)'
 
-                    loss = session.run(self.loss, feeds)
-                    msg = '%d epochs, %d batches\t' % (i, batch_counter)
-                    msg += 'Avg batch loss: %f\t' % avg_loss
-                    msg += 'Validation loss: %f' % loss
-                    if loss < best_loss:
-                        best_loss = loss
-                        self.save(saver, session, save_path)
-                        msg += '\t(saved model)'
-
-                    logging.info(msg)
+                logging.info(msg)
 
     def save(self, saver, session, directory):
         """
@@ -323,11 +295,10 @@ class TextAutoencoder(object):
         """
         model_path = os.path.join(directory, 'model')
         saver.save(session, model_path)
-        metadata = {'num_time_steps': self.num_time_steps,
-                    'vocab_size': self.vocab_size,
+        metadata = {'vocab_size': self.vocab_size,
                     'embedding_size': self.embedding_size,
                     'num_units': self.lstm_fw.output_size,
-                    'eos': self.eos,
+                    'go': self.go,
                     'bidirectional': self.bidirectional
                     }
         metadata_path = os.path.join(directory, 'metadata.json')
@@ -347,14 +318,12 @@ class TextAutoencoder(object):
         metadata_path = os.path.join(directory, 'metadata.json')
         with open(metadata_path, 'rb') as f:
             metadata = json.load(f)
-        num_time_steps = metadata['num_time_steps'] if train else None
         dummy_embeddings = np.empty((metadata['vocab_size'],
                                      metadata['embedding_size'],),
                                     dtype=np.float32)
 
-        ae = TextAutoencoder(metadata['num_units'], num_time_steps,
-                             dummy_embeddings,
-                             metadata['eos'], train=train,
+        ae = TextAutoencoder(metadata['num_units'], dummy_embeddings,
+                             metadata['go'], train=train,
                              bidirectional=metadata['bidirectional'])
         vars_to_load = ae.get_trainable_variables()
         if not train:
@@ -409,7 +378,7 @@ class TextAutoencoder(object):
         time_steps = 0
         max_time_steps = 2 * len(inputs[0])
         answer = []
-        input_symbol = self.eos * np.ones_like(sizes, dtype=np.int32)
+        input_symbol = self.go * np.ones_like(sizes, dtype=np.int32)
 
         # this array control which sequences have already been finished by the
         # decoder, i.e., for which ones it already produced the END symbol
@@ -449,7 +418,7 @@ class TextAutoencoder(object):
 
         return np.hstack(answer)
 
-    def _generate_batch_eos(self, like):
+    def _generate_batch_go(self, like):
         """
         Generate a 1-d tensor with copies of EOS as big as the batch size,
 
@@ -457,4 +426,4 @@ class TextAutoencoder(object):
         :return: a tensor with shape as `like`
         """
         ones = tf.ones_like(like)
-        return ones * self.eos
+        return ones * self.go

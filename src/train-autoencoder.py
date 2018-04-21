@@ -98,16 +98,9 @@ if __name__ == '__main__':
     logging.info('Reading validation data')
     valid_data = utils.load_binary_data(args.valid)
     logging.info('Creating model')
-    time_steps_train = train_data.largest_len
-    time_steps_valid = valid_data.largest_len
-    if time_steps_train != time_steps_valid:
-        msg = 'Train and validation data must have the same number '\
-              'of time steps, but found %s and %s' % (time_steps_train,
-                                                      time_steps_valid)
-        raise ValueError(msg)
 
     train_embeddings = args.train_embeddings if args.embeddings else True
-    model = autoencoder.TextAutoencoder(args.lstm_units, time_steps_train,
+    model = autoencoder.TextAutoencoder(args.lstm_units,
                                         embeddings, wd.eos_index,
                                         train_embeddings=train_embeddings,
                                         bidirectional=args.bidirectional)

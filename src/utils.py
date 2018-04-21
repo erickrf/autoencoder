@@ -62,15 +62,23 @@ class Dataset(object):
         self.num_items = sum(len(array) for array in sizes)
         self.next_batch_ind = 0
         self.last_matrix_ind = 0
+        self.epoch_counter = 0
         self.largest_len = max(sent.shape[1] for sent in sentences)
 
     def __len__(self):
         return self.num_items
 
+    def reset_epoch_counter(self):
+        self.epoch_counter = 0
+
     def next_batch(self, batch_size):
         """
         Return the next batch (keeping track of the last, or from the beginning
-        if this is the first call)
+        if this is the first call).
+
+        Sentences are grouped in batches according to their sizes (similar sizes
+        go together).
+
         :param batch_size: number of items to return
         :return: a tuple (sentences, sizes) with at most `batch_size`
             items. If there are not enough `batch_size`, return as much
@@ -79,8 +87,11 @@ class Dataset(object):
         matrix = self.sentence_matrices[self.last_matrix_ind]
         if self.next_batch_ind >= len(matrix):
             self.last_matrix_ind += 1
+            if self.last_matrix_ind >= len(self.sentence_matrices):
+                self.epoch_counter += 1
+                self.last_matrix_ind = 0
+
             self.next_batch_ind = 0
-            self.last_matrix_ind %= len(self.sentence_matrices)
             matrix = self.sentence_matrices[self.last_matrix_ind]
 
         sizes = self.sizes[self.last_matrix_ind]
