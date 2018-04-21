@@ -203,7 +203,6 @@ def write_vocabulary(words, path):
     """
     Write the contents of word_dict to the given path.
     """
-    # wordlist = sorted(word_dict, key=lambda x: word_dict[x])
     text = '\n'.join(words)
     with open(path, 'wb') as f:
         f.write(text.encode('utf-8'))
@@ -225,8 +224,12 @@ if __name__ == '__main__':
                         help='Proportion of the validation dataset '
                              '(default 0.01)')
     args = parser.parse_args()
+
     train_data, valid_data, words = load_data_memory_friendly(
         args.input, args.max_length, args.min_freq, args.valid_proportion)
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
 
     path = os.path.join(args.output, 'valid-data.npz')
     np.savez(path, **valid_data)
