@@ -10,6 +10,7 @@ import argparse
 import logging
 import tensorflow as tf
 import numpy as np
+from six.moves import input
 
 import utils
 import autoencoder
@@ -47,7 +48,7 @@ if __name__ == '__main__':
     index_dict = word_dict.inverse_dictionary()
 
     while True:
-        string = raw_input('Type tokenized sentence: ').decode('utf-8')
+        string = input('Type tokenized sentence: ').decode('utf-8')
         sent = SentenceWrapper(string, word_dict, args.lower)
         answer = model.run(sess, [sent.indices], [len(sent)])
         answer_words = [index_dict[i] for i in answer]
