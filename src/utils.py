@@ -19,6 +19,10 @@ class WordDictionary(object):
         words = read_word_list(path)
         self.vocabulary_size = len(words)
 
+        # If there are repeated words, they will be mapped to the same index
+        # If there were errors reading the file (for decoding), they will be
+        # represented as an empty string and collapsed together
+        # In both cases, the order of words is preserved.
         index_range = range(len(words))
         mapping = zip(words, index_range)
         self.oov_index = words.index('<unk>')
@@ -139,10 +143,18 @@ def read_word_list(path):
     """
     Read the contents of a file and return a list of lines
     """
-    with open(path, 'rb') as f:
-        text = f.read().decode('utf-8')
+    words = []
 
-    return text.splitlines()
+    with open(path, 'rb') as f:
+        # try:
+        for line in f:
+            line = line.decode('utf-8', 'ignore')
+            line = line.strip()
+            words.append(line)
+        # except UnicodeDecodeError:
+        #     print('Error trying to decode word, skipping:', line)
+
+    return words
 
 
 def load_binary_data(path):

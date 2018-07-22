@@ -48,9 +48,9 @@ if __name__ == '__main__':
     index_dict = word_dict.inverse_dictionary()
 
     while True:
-        string = input('Type tokenized sentence: ').decode('utf-8')
+        string = input('Type tokenized sentence: ')
         sent = SentenceWrapper(string, word_dict, args.lower)
         answer = model.run(sess, [sent.indices], [len(sent)])
         answer_words = [index_dict[i] for i in answer]
         answer_str = ' '.join(answer_words)
-        print('Model output:', answer_str.encode('utf-8'))
+        print('Model output:', answer_str)

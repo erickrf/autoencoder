@@ -90,7 +90,7 @@ if __name__ == '__main__':
 
     sess = tf.Session()
     wd = utils.WordDictionary(args.vocab)
-    embeddings = load_or_create_embeddings(args.embeddings, len(wd),
+    embeddings = load_or_create_embeddings(args.embeddings, wd.vocabulary_size,
                                            args.embedding_size)
 
     logging.info('Reading training data')
