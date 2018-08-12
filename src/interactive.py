@@ -43,7 +43,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     logging.info('Reading model')
     sess = tf.InteractiveSession()
-    model = autoencoder.TextAutoencoder.load(args.model, sess)
+    model = autoencoder.TextVariationalAutoencoder.load(args.model, sess)
     word_dict = utils.WordDictionary(args.vocabulary)
     index_dict = word_dict.inverse_dictionary()
 
