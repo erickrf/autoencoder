@@ -97,7 +97,8 @@ class TextVariationalAutoencoder(object):
             # reshape trick necessary; or else tensorflow can't determine rank
             latent_state = tf.reshape(self.latent_state, tf.shape(self.mean))
 
-            decoder_projection_layer = tf.layers.Dense(self.lstm_units)
+            # use 2 * lstm_units to be the same size as the bilstm encoder
+            decoder_projection_layer = tf.layers.Dense(2 * self.lstm_units)
             decoder_state = decoder_projection_layer(latent_state)
             state_tuple = tf.nn.rnn_cell.LSTMStateTuple(
                 decoder_state, tf.zeros_like(decoder_state))
@@ -111,7 +112,7 @@ class TextVariationalAutoencoder(object):
                                      [-1, 1, self.embedding_size])
             decoder_input = tf.concat([embedded_go, embedded], axis=1)
 
-            decoder_lstm = tf.nn.rnn_cell.LSTMCell(lstm_units,
+            decoder_lstm = tf.nn.rnn_cell.LSTMCell(2 * lstm_units,
                                                    initializer=initializer)
 
             outputs, _ = tf.nn.dynamic_rnn(
@@ -128,9 +129,9 @@ class TextVariationalAutoencoder(object):
         self.decoder_step_input = tf.placeholder(tf.int32,
                                                  [None],
                                                  'prediction_step')
-        self.decoder_step_h = tf.placeholder(tf.float32, [None, lstm_units],
+        self.decoder_step_h = tf.placeholder(tf.float32, [None, 2 * lstm_units],
                                              'decoder_step_state_h')
-        self.decoder_step_c = tf.placeholder(tf.float32, [None, lstm_units],
+        self.decoder_step_c = tf.placeholder(tf.float32, [None, 2 * lstm_units],
                                              'decoder_step_state_c')
         self.latent_state_input = tf.placeholder(
             tf.float32, [None, latent_units], 'latent_state_step')
