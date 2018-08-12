@@ -60,6 +60,8 @@ if __name__ == '__main__':
                                    'bidirectional model, this is doubled in '
                                    'practice)', default=500,
                         dest='lstm_units', type=int)
+    parser.add_argument('-z', help='Number of latent units', default=100,
+                        type=int, dest='latent_units')
     parser.add_argument('-r', help='Initial learning rate', default=0.001,
                         dest='learning_rate', type=float)
     parser.add_argument('-b', help='Batch size', default=32,
@@ -71,9 +73,6 @@ if __name__ == '__main__':
     parser.add_argument('-i',
                         help='Number of batches between performance report',
                         dest='interval', type=int, default=1000)
-    parser.add_argument('--mono', help='Use a monodirectional LSTM '
-                                       '(bidirectional is used by default)',
-                        action='store_false', dest='bidirectional')
     parser.add_argument('--te', help='Train embeddings. If not given, they are '
                                      'frozen. (always true if embeddings are '
                                      'not given)',
@@ -81,6 +80,10 @@ if __name__ == '__main__':
     parser.add_argument('--embeddings',
                         help='Numpy embeddings file. If not supplied, '
                              'random embeddings are generated.')
+    parser.add_argument('--kl', type=int, dest='kl_batches', default=10,
+                        help='How many batches to wait before increasing KL '
+                             'term in the loss by 0.01 (it starts at 0 and '
+                             'increases until 1)')
     parser.add_argument('vocab', help='Vocabulary file')
     parser.add_argument('train', help='Training set')
     parser.add_argument('valid', help='Validation set')
@@ -90,7 +93,7 @@ if __name__ == '__main__':
 
     sess = tf.Session()
     wd = utils.WordDictionary(args.vocab)
-    embeddings = load_or_create_embeddings(args.embeddings, len(wd),
+    embeddings = load_or_create_embeddings(args.embeddings, wd.vocabulary_size,
                                            args.embedding_size)
 
     logging.info('Reading training data')
@@ -100,14 +103,14 @@ if __name__ == '__main__':
     logging.info('Creating model')
 
     train_embeddings = args.train_embeddings if args.embeddings else True
-    model = autoencoder.TextAutoencoder(args.lstm_units,
-                                        embeddings, wd.eos_index,
-                                        train_embeddings=train_embeddings,
-                                        bidirectional=args.bidirectional)
+    model = autoencoder.TextVariationalAutoencoder(
+        args.lstm_units, args.latent_units,  embeddings,
+        train_embeddings=train_embeddings)
 
     sess.run(tf.global_variables_initializer())
     show_parameter_count(model.get_trainable_variables())
     logging.info('Initialized the model and all variables. Starting training.')
     model.train(sess, args.save_dir, train_data, valid_data, args.batch_size,
                 args.num_epochs, args.learning_rate,
-                args.dropout_keep, 5.0, report_interval=args.interval)
+                args.dropout_keep, 5.0, report_interval=args.interval,
+                increase_kl_every=args.kl_batches)

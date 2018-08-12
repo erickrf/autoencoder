@@ -53,4 +53,4 @@ if __name__ == '__main__':
         answer = model.run(sess, [sent.indices], [len(sent)])
         answer_words = [index_dict[i] for i in answer]
         answer_str = ' '.join(answer_words)
-        print('Model output:', answer_str.encode('utf-8'))
+        print('Model output:', answer_str)
