@@ -90,6 +90,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
+    logging.info('Training with the following parameters:', args)
 
     sess = tf.Session()
     wd = utils.WordDictionary(args.vocab)
