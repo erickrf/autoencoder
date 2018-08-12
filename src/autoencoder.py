@@ -312,13 +312,11 @@ class TextVariationalAutoencoder(object):
             json.dump(metadata, f)
 
     @classmethod
-    def load(cls, directory, session, train_embeddings=False):
+    def load(cls, directory, session):
         """
         Load an instance of this class from a previously saved one.
         :param directory: directory with the model files
         :param session: tensorflow session
-        :param train_embeddings: if True, train embeddings if more training
-            is performed
         :return: a TextAutoencoder instance
         """
         model_path = os.path.join(directory, 'model')
@@ -329,9 +327,11 @@ class TextVariationalAutoencoder(object):
                                      metadata['embedding_size'],),
                                     dtype=np.float32)
 
+        # embeddings must be trained to be loaded...
+        # TODO: change to load them regardless
         ae = TextVariationalAutoencoder(
             metadata['lstm_units'], metadata['latent_units'], dummy_embeddings,
-            train_embeddings=train_embeddings, create_special_embeddings=False)
+            train_embeddings=True, create_special_embeddings=False)
         vars_to_load = ae.get_trainable_variables()
 
         saver = tf.train.Saver(vars_to_load)
