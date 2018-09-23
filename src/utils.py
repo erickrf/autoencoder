@@ -27,7 +27,9 @@ class WordDictionary(object):
         mapping = zip(words, index_range)
         self.oov_index = words.index('<unk>')
         self.d = defaultdict(lambda: self.oov_index, mapping)
-        self.eos_index = self.d['</s>']
+        max_val = max(self.d.values())
+        self.d['<s>'] = max_val + 1
+        self.d['</s>'] = max_val + 2
 
     def __getitem__(self, item):
         return self.d[item]
