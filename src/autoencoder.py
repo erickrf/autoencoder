@@ -276,6 +276,7 @@ class TextVariationalAutoencoder(object):
                 validation_feeds = {
                     self.sentence: valid_sents[sample_indices],
                     self.sentence_size: valid_sizes[sample_indices],
+                    self.kl_coefficient: 0,
                     self.dropout_keep: 1}
 
                 loss = session.run(self.loss, validation_feeds)
@@ -283,7 +284,7 @@ class TextVariationalAutoencoder(object):
                                                    batch_counter)
                 msg += 'Avg batch loss: %f\t' % avg_loss
                 msg += 'Validation loss: %f\t' % loss
-                msg += 'KL weight: %.3' % kl_coefficient
+                msg += 'KL weight: %.3f' % kl_coefficient
                 if loss < best_loss:
                     best_loss = loss
                     self.save(saver, session, save_path)
