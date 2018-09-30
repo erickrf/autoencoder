@@ -10,6 +10,11 @@ from collections import defaultdict
 import numpy as np
 
 
+UNKNOWN = '<unk>'
+GO = '<s>'
+EOS = '</s>'
+
+
 class WordDictionary(object):
     """
     Simple class to wrap a defaultdict and keep track of the vocabulary
@@ -24,12 +29,23 @@ class WordDictionary(object):
         # represented as an empty string and collapsed together
         # In both cases, the order of words is preserved.
         index_range = range(len(words))
+        try:
+            self.oov_index = words.index(UNKNOWN)
+        except ValueError:
+            self.oov_index = len(words)
+            words.append(UNKNOWN)
+
         mapping = zip(words, index_range)
-        self.oov_index = words.index('<unk>')
         self.d = defaultdict(lambda: self.oov_index, mapping)
         max_val = max(self.d.values())
-        self.d['<s>'] = max_val + 1
-        self.d['</s>'] = max_val + 2
+
+        if GO not in self.d:
+            max_val += 1
+            self.d[GO] = max_val
+
+        if EOS not in self.d:
+            max_val += 1
+            self.d[EOS] = max_val
 
     def __getitem__(self, item):
         return self.d[item]

@@ -8,6 +8,8 @@ import numpy as np
 import math
 from collections import defaultdict, Counter
 
+import utils
+
 """
 This script processes an input text file to produce data in binary
 format to be used with the autoencoder (binary is much faster to read).
@@ -27,8 +29,12 @@ def load_data_memory_friendly(path, max_size, min_occurrences=10,
     # first pass to build vocabulary and count sentence sizes
     print('Creating vocabulary...')
     with open(path, 'rb') as f:
-        for line in f:
-            line = line.decode('utf-8')
+        for i, line in enumerate(f, 1):
+            try:
+                line = line.decode('utf-8')
+            except UnicodeDecodeError:
+                continue
+
             tokens = line.split()
             sent_size = len(tokens)
             if sent_size > max_size:
@@ -44,10 +50,11 @@ def load_data_memory_friendly(path, max_size, min_occurrences=10,
     vocabulary = [w for w, count in token_counter.most_common()
                   if count >= min_occurrences]
     # this might break the ordering, but hopefully is not a problem
-    vocabulary.insert(0, '</s>')
-    vocabulary.insert(1, '<unk>')
+    vocabulary.insert(0, utils.UNKNOWN)
+    vocabulary.insert(1, utils.GO)
+    vocabulary.insert(2, utils.EOS)
     mapping = zip(vocabulary, range(len(vocabulary)))
-    dd = defaultdict(lambda: 1, mapping)
+    dd = defaultdict(lambda: 0, mapping)
 
     # now read the corpus again to fill the sentence matrix
     print('Converting word to indices...')
@@ -86,6 +93,7 @@ def create_sentence_matrix(path, num_sentences, min_size,
                            max_size, word_dict):
     """
     Create a sentence matrix from the file in the given path.
+
     :param path: path to text file
     :param min_size: minimum sentence length, inclusive
     :param max_size: maximum sentence length, inclusive
@@ -94,12 +102,18 @@ def create_sentence_matrix(path, num_sentences, min_size,
     :return: tuple (2-d matrix, 1-d array) with sentences and
         sizes
     """
-    sentence_matrix = np.full((num_sentences, max_size), 0, np.int32)
+    sentence_matrix = np.full((num_sentences, max_size),
+                              word_dict[utils.EOS], np.int32)
     sizes = np.empty(num_sentences, np.int32)
     i = 0
     with open(path, 'rb') as f:
         for line in f:
-            line = line.decode('utf-8')
+            try:
+                line = line.decode('utf-8')
+            except UnicodeDecodeError:
+                print('Could not decode line %d: %s' % (i, line))
+                continue
+
             tokens = line.split()
             sent_size = len(tokens)
             if sent_size < min_size or sent_size > max_size:
