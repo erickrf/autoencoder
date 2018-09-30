@@ -283,7 +283,7 @@ class TextVariationalAutoencoder(object):
                                                    batch_counter)
                 msg += 'Avg batch loss: %f\t' % avg_loss
                 msg += 'Validation loss: %f\t' % loss
-                msg += 'KL weight: %.2f' % kl_coefficient
+                msg += 'KL weight: %.3' % kl_coefficient
                 if loss < best_loss:
                     best_loss = loss
                     self.save(saver, session, save_path)
