@@ -242,7 +242,7 @@ class TextVariationalAutoencoder(object):
         #                                                shuffle=True)
 
         # del train_data  # save memory...
-        valid_sents, valid_sizes = valid_data.join_all(self.go,
+        valid_sents, valid_sizes = valid_data.join_all(self.eos,
                                                        shuffle=True)
         train_data.reset_epoch_counter()
         feeds = {self.clip_value: clip_value,
