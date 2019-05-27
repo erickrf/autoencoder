@@ -111,3 +111,4 @@ if __name__ == '__main__':
     model.train(sess, args.save_dir, train_data, valid_data, args.batch_size,
                 args.num_epochs, args.learning_rate,
                 args.dropout_keep, 5.0, report_interval=args.interval)
+    logging.info('Finished training after '+str(args.num_epochs)+' epochs.')
